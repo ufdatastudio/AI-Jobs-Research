@@ -1,19 +1,19 @@
 from __future__ import annotations
-import argparse, csv, json, re, torch, pandas as pd
+
+import argparse
+import csv
+import json
 from pathlib import Path
 from typing import Dict, List, Optional
-from transformers import AutoTokenizer, AutoModelForCausalLM
+
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import pandas as pd
+import re
 
 
-# ---------------------------------------------------------------------
-#  MODEL CONFIGURATION
-# ---------------------------------------------------------------------
 MODEL_ID = "Qwen/Qwen2-7B-Instruct"
 
-
-# ---------------------------------------------------------------------
-#  EVALUATION PROMPT
-# ---------------------------------------------------------------------
 EVAL_PROMPT = """
 You are an expert evaluator of cross-sector job postings related to Artificial Intelligence (AI) and Pedagogy in Engineering Education.
 
@@ -56,18 +56,24 @@ Example:
 
 
 # ---------------------------------------------------------------------
-#  HELPER FUNCTIONS
+# Model Loading
 # ---------------------------------------------------------------------
 def load_model_and_tokenizer(model_id: str = MODEL_ID):
+    """Load the Qwen2 judge model and tokenizer."""
     print(f"Loading model: {model_id}")
-    tok = AutoTokenizer.from_pretrained(model_id)
-    mdl = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype=torch.bfloat16, device_map="auto"
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        torch_dtype=torch.bfloat16,
+        device_map="auto"
     )
-    mdl.eval()
-    return tok, mdl
+    model.eval()
+    return tokenizer, model
 
 
+# ---------------------------------------------------------------------
+# Core Evaluation
+# ---------------------------------------------------------------------
 def generate_evaluation(job_posting: str,
                         tokenizer,
                         model,
@@ -104,9 +110,11 @@ def generate_evaluation(job_posting: str,
     return text.strip()
 
 
+# ---------------------------------------------------------------------
+# JSON Extraction Utility
+# ---------------------------------------------------------------------
 def extract_json_from_response(text: str) -> Optional[Dict]:
     """Extract the JSON object from model output text."""
-    # Look for JSON code blocks
     match = re.search(r"\{[\s\S]*\}", text)
     if not match:
         return None
@@ -118,15 +126,18 @@ def extract_json_from_response(text: str) -> Optional[Dict]:
         return None
 
 
-def load_csv(path: str) -> List[Dict[str, str]]:
-    """Load CSV data."""
-    with open(path, "r", encoding="utf-8", newline="") as f:
+# ---------------------------------------------------------------------
+# Data Loading
+# ---------------------------------------------------------------------
+def load_csv(csv_path: str) -> List[Dict[str, str]]:
+    """Load job postings from CSV file."""
+    with open(csv_path, "r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         return list(reader)
 
 
 # ---------------------------------------------------------------------
-#  EVALUATION CORE
+# Main Evaluation Function
 # ---------------------------------------------------------------------
 def evaluate_job_postings(csv_path: str,
                           job_posting_column: str,
@@ -137,16 +148,16 @@ def evaluate_job_postings(csv_path: str,
                           temperature: float = 0.2):
     """Evaluate job postings to determine AI-pedagogy alignment using Qwen2."""
     rows = load_csv(csv_path)
-    print(f"✅ Loaded {len(rows)} rows from CSV")
+    print(f"Loaded {len(rows)} rows from CSV")
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     if job_posting_column not in rows[0]:
-        print(f"⚠️ Column '{job_posting_column}' not found in CSV — skipping.")
+        print(f"WARNING: Column '{job_posting_column}' not found in CSV — skipping.")
         return
 
-    print(f"\n🔍 Evaluating job postings from column: {job_posting_column}")
+    print(f"\nEvaluating job postings from column: {job_posting_column}")
     evaluations = []
 
     for i, row in enumerate(rows):
@@ -156,7 +167,7 @@ def evaluate_job_postings(csv_path: str,
         if not job_posting:
             continue
 
-        print(f"  ▶ Evaluating {job_id} ({i+1}/{len(rows)})")
+        print(f"  Evaluating {job_id} ({i+1}/{len(rows)})")
         try:
             response = generate_evaluation(job_posting, tokenizer, model,
                                            max_new_tokens=max_new_tokens, temperature=temperature)
@@ -164,7 +175,7 @@ def evaluate_job_postings(csv_path: str,
 
             # Retry once if JSON fails
             if not scores:
-                print(f"    ⚠️ Retry due to malformed JSON ...")
+                print(f"    WARNING: Retry due to malformed JSON ...")
                 response = generate_evaluation(job_posting, tokenizer, model,
                                                max_new_tokens=max_new_tokens, temperature=temperature)
                 scores = extract_json_from_response(response)
@@ -178,11 +189,11 @@ def evaluate_job_postings(csv_path: str,
                 }
                 evaluations.append(evaluation)
             else:
-                print(f"    ❌ Failed to parse JSON for {job_id}")
+                print(f"    ERROR: Failed to parse JSON for {job_id}")
                 print(f"    Raw output snippet: {response[:200]}")
 
         except Exception as e:
-            print(f"    ❌ Error evaluating {job_id}: {e}")
+            print(f"    ERROR: Error evaluating {job_id}: {e}")
             continue
 
         # Periodically clear cache to prevent OOM
@@ -190,13 +201,13 @@ def evaluate_job_postings(csv_path: str,
             torch.cuda.empty_cache()
 
     # Save results
-    json_out = output_path / f"job_posting_evaluations.json"
-    csv_out = output_path / f"job_posting_evaluations.csv"
+    json_out = output_path / "job_posting_evaluations.json"
+    csv_out = output_path / "job_posting_evaluations.csv"
     pd.DataFrame(evaluations).to_csv(csv_out, index=False)
     with open(json_out, "w", encoding="utf-8") as f:
         json.dump(evaluations, f, ensure_ascii=False, indent=2)
 
-    print(f"💾 Saved {len(evaluations)} evaluations to:\n  {json_out}\n  {csv_out}")
+    print(f"Saved {len(evaluations)} evaluations to:\n  {json_out}\n  {csv_out}")
 
     # Compute average scores
     if evaluations:
@@ -216,13 +227,13 @@ def evaluate_job_postings(csv_path: str,
         ai_related_count = sum(1 for ev in evaluations if ev.get("ai_pedagogy_related") == True)
         avg_scores["ai_pedagogy_related_percentage"] = (ai_related_count / len(evaluations) * 100) if evaluations else 0
 
-        print(f"\n📊 Average scores:")
+        print(f"\nAverage scores:")
         for k, v in avg_scores.items():
             print(f"   {k:30s}: {v:.2f}")
 
 
 # ---------------------------------------------------------------------
-#  MAIN
+# CLI Entry Point
 # ---------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="Evaluate job postings for AI-pedagogy alignment using Qwen2 as a judge.")
@@ -237,8 +248,9 @@ def main():
     tokenizer, model = load_model_and_tokenizer(args.model_id)
     evaluate_job_postings(args.csv_path, args.job_posting_column, args.output_dir,
                           tokenizer, model, args.max_new_tokens, args.temperature)
-    print("\n✅ Evaluation complete.")
+    print("\nEvaluation complete.")
 
 
 if __name__ == "__main__":
     main()
+
