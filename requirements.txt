@@ -1,5 +1,15 @@
+# PyTorch with CUDA 12.8 support for B200 GPU
+# Install from PyTorch's CUDA 12.8 wheel index
+--extra-index-url https://download.pytorch.org/whl/cu128
 torch>=2.0.0
+torchaudio>=2.0.0
+torchvision>=0.15.0
+
+# Hugging Face libraries
 transformers>=4.30.0
-pandas>=1.5.0
 huggingface-hub>=0.15.0
+accelerate>=0.20.0
+
+# Data processing
+pandas>=1.5.0
 
