@@ -8,7 +8,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 # ---------------------------------------------------------------------
 #  MODEL CONFIGURATION
 # ---------------------------------------------------------------------
-MODEL_ID = "Qwen/Qwen2-7B-Instruct"
+MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
 
 
 # ---------------------------------------------------------------------
@@ -103,12 +103,12 @@ def load_csv(path: str) -> List[Dict[str, str]]:
 # ---------------------------------------------------------------------
 #  EVALUATION CORE
 # ---------------------------------------------------------------------
-def evaluate_with_qwen2(csv_path: str,
+def evaluate_with_mistral(csv_path: str,
                         model_columns: List[str], reference_column: str,
                         output_dir: str, max_new_tokens=512, temperature=0.2):
-    """Evaluate using Qwen2 as judge."""
+    """Evaluate using Mistral as judge."""
     rows = load_csv(csv_path)
-    print(f"\n🔹 Evaluating with Qwen2 ({len(rows)} rows)")
+    print(f"\n🔹 Evaluating with Mistral ({len(rows)} rows)")
     tok, mdl = load_model_and_tokenizer(MODEL_ID)
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -134,7 +134,7 @@ def evaluate_with_qwen2(csv_path: str,
                     scores = extract_json_from_response(resp)
                 if scores:
                     evals.append({
-                        "judge_model": "qwen2",
+                        "judge_model": "mistral",
                         "audio_id": row.get("audio_id", f"row_{i}"),
                         "model_name": model_col,
                         **scores
@@ -145,8 +145,8 @@ def evaluate_with_qwen2(csv_path: str,
             if (i + 1) % 10 == 0:
                 torch.cuda.empty_cache()
 
-        out_csv = Path(output_dir) / f"{model_col}_qwen2_eval.csv"
-        out_json = Path(output_dir) / f"{model_col}_qwen2_eval.json"
+        out_csv = Path(output_dir) / f"{model_col}_mistral_eval.csv"
+        out_json = Path(output_dir) / f"{model_col}_mistral_eval.json"
         pd.DataFrame(evals).to_csv(out_csv, index=False)
         with open(out_json, "w", encoding="utf-8") as f:
             json.dump(evals, f, ensure_ascii=False, indent=2)
@@ -157,7 +157,7 @@ def evaluate_with_qwen2(csv_path: str,
             keys = ["score_overall","score_fluency","score_faithfulness",
                     "score_coverage","score_usefulness"]
             avg = {k: sum(float(e.get(k,0)) for e in evals)/len(evals) for k in keys}
-            print(f"Avg ({model_col}, qwen2): " +
+            print(f"Avg ({model_col}, mistral): " +
                   ", ".join(f"{k}:{v:.2f}" for k,v in avg.items()))
 
 
@@ -165,27 +165,28 @@ def evaluate_with_qwen2(csv_path: str,
 #  MAIN
 # ---------------------------------------------------------------------
 def main():
-    ap = argparse.ArgumentParser(description="Evaluate model summaries using Qwen2 as judge.")
+    ap = argparse.ArgumentParser(description="Evaluate model summaries using Mistral as judge.")
     ap.add_argument("--csv_path", required=True)
     ap.add_argument("--model_columns", nargs="+",
                     default=["AF35_summary","Qwen_summary","Kimi_summary","Salmon_summary","GAMA_summary"])
     ap.add_argument("--reference_column", default="LlamaRead_summary")
-    ap.add_argument("--output_dir", default="results/Reading/Qwen2")
-    ap.add_argument("--model_id", type=str, default=MODEL_ID, help="Qwen2 model ID")
+    ap.add_argument("--output_dir", default="results/Reading/Mistral")
+    ap.add_argument("--model_id", type=str, default=MODEL_ID, help="Mistral model ID")
     ap.add_argument("--max_new_tokens", type=int, default=512)
     ap.add_argument("--temperature", type=float, default=0.2)
     args = ap.parse_args()
 
     try:
-        evaluate_with_qwen2(args.csv_path, args.model_columns,
+        evaluate_with_mistral(args.csv_path, args.model_columns,
                            args.reference_column, args.output_dir,
                            args.max_new_tokens, args.temperature)
         torch.cuda.empty_cache()
-        print(f"✅ Completed Qwen2 evaluation")
+        print(f"✅ Completed Mistral evaluation")
     except Exception as e:
-        print(f"❌ Failed Qwen2 evaluation: {e}")
+        print(f"❌ Failed Mistral evaluation: {e}")
         raise
 
 
 if __name__ == "__main__":
     main()
+
