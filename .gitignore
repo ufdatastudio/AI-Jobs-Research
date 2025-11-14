@@ -201,3 +201,6 @@ config.local.py
 settings.local.py
 .local/
 
+# Odd version/artifact files
+=*
+
