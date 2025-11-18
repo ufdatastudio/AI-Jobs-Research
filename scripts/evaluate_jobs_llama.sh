@@ -28,13 +28,31 @@ export HF_HUB_CACHE="${HF_HOME}/hub"
 export TRANSFORMERS_CACHE="${BASE_DIR}/.cache/transformers"
 mkdir -p "${HF_HOME}" "${HF_HUB_CACHE}" "${TRANSFORMERS_CACHE}"
 
+# Copy Hugging Face token to accessible location for gated models
+# The token from home directory needs to be available in the SLURM job
+if [ -f "${HOME}/.cache/huggingface/token" ]; then
+    cp "${HOME}/.cache/huggingface/token" "${HF_HOME}/token" 2>/dev/null || true
+    chmod 600 "${HF_HOME}/token" 2>/dev/null || true
+    echo "Hugging Face token copied to ${HF_HOME}/token"
+elif [ -n "${HUGGING_FACE_HUB_TOKEN:-}" ]; then
+    echo "${HUGGING_FACE_HUB_TOKEN}" > "${HF_HOME}/token"
+    chmod 600 "${HF_HOME}/token" 2>/dev/null || true
+    echo "Hugging Face token set from environment variable"
+else
+    echo "WARNING: No Hugging Face token found. Gated models may not work."
+    echo "Please ensure you have:"
+    echo "  1. Access to the Llama model at https://huggingface.co/meta-llama/Meta-Llama-3.1-8B-Instruct"
+    echo "  2. Run 'huggingface-cli login' to authenticate"
+fi
+
 # Performance knobs
 export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-# Optional: set HF token for gated models
-# export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN:-}"
+# Optional: set HF token for gated models via environment variable
+# Uncomment and set if token is stored as environment variable:
+# export HUGGING_FACE_HUB_TOKEN="your_token_here"
 
 echo "===== Starting Llama Job Posting Evaluation ====="
 echo "CSV Path: ${CSV_PATH}"
