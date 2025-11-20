@@ -22,7 +22,7 @@ export PATH=$CUDA_HOME/bin:$PATH
 
 # Paths
 BASE_DIR="/orange/ufdatastudios/c.okocha/AI-Jobs-Research"
-CSV_PATH="${BASE_DIR}/Data/job_postings_sample.csv"
+CSV_PATH="${BASE_DIR}/Data/extracted_job_fields_llama.csv"
 OUTPUT_DIR="${BASE_DIR}/results/JobPostings/Qwen2"
 
 # Use /orange for model caches to avoid home quota
@@ -52,7 +52,6 @@ source .venv/bin/activate
 # Run Qwen2 job posting evaluation
 python models/evaluate_jobs_qwen2.py \
   --csv_path "${CSV_PATH}" \
-  --job_posting_column job_posting \
   --output_dir "${OUTPUT_DIR}" \
   --model_id "Qwen/Qwen2-7B-Instruct" \
   --max_new_tokens 512 \

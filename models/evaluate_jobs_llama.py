@@ -139,8 +139,52 @@ def load_csv(csv_path: str) -> List[Dict[str, str]]:
 # ---------------------------------------------------------------------
 # Main Evaluation Function
 # ---------------------------------------------------------------------
+def combine_job_fields(row: Dict[str, str]) -> str:
+    """Combine extracted job fields into a full job posting text."""
+    parts = []
+    
+    if row.get("company_name"):
+        parts.append(f"Company: {row['company_name']}")
+    
+    if row.get("job_title"):
+        parts.append(f"Job Title: {row['job_title']}")
+    
+    if row.get("job_description"):
+        parts.append(f"\nDescription:\n{row['job_description']}")
+    
+    if row.get("responsibilities"):
+        parts.append(f"\nResponsibilities:\n{row['responsibilities']}")
+    
+    if row.get("required_skills"):
+        parts.append(f"\nRequired Skills:\n{row['required_skills']}")
+    
+    if row.get("job_qualification"):
+        parts.append(f"\nQualifications:\n{row['job_qualification']}")
+    
+    if row.get("job_salary"):
+        parts.append(f"\nSalary: {row['job_salary']}")
+    
+    return "\n".join(parts)
+
+
+def calculate_mean_score(scores: Dict) -> float:
+    """Calculate the mean of all six score fields."""
+    score_keys = [
+        "score_pedagogy", "score_audience", "score_ai_relevance",
+        "score_responsible_ai", "score_cross_sector_context", "score_overall_fit"
+    ]
+    values = []
+    for key in score_keys:
+        val = scores.get(key)
+        if val is not None:
+            try:
+                values.append(float(val))
+            except (ValueError, TypeError):
+                pass
+    return sum(values) / len(values) if values else 0.0
+
+
 def evaluate_job_postings(csv_path: str,
-                          job_posting_column: str,
                           output_dir: str = "results/JobPostings/Llama",
                           tokenizer=None,
                           model=None,
@@ -153,18 +197,21 @@ def evaluate_job_postings(csv_path: str,
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    if job_posting_column not in rows[0]:
-        print(f"WARNING: Column '{job_posting_column}' not found in CSV — skipping.")
+    if not rows:
+        print("WARNING: CSV is empty — skipping.")
         return
 
-    print(f"\nEvaluating job postings from column: {job_posting_column}")
+    print(f"\nEvaluating job postings from extracted fields")
     evaluations = []
 
     for i, row in enumerate(rows):
-        job_id = row.get("job_id", row.get("id", f"row_{i}"))
-        job_posting = (row.get(job_posting_column) or "").strip()
+        job_id = row.get("job_id", row.get("id", f"row_{i+1}"))
+        
+        # Combine all job fields into a single posting text
+        job_posting = combine_job_fields(row).strip()
 
         if not job_posting:
+            print(f"  Skipping {job_id} ({i+1}/{len(rows)}) — empty job posting")
             continue
 
         print(f"  Evaluating {job_id} ({i+1}/{len(rows)})")
@@ -181,19 +228,57 @@ def evaluate_job_postings(csv_path: str,
                 scores = extract_json_from_response(response)
 
             if scores:
+                # Calculate mean score
+                mean_score = calculate_mean_score(scores)
+                scores["mean_score"] = round(mean_score, 2)
+                
+                # Combine original row data with evaluation scores
                 evaluation = {
-                    "job_id": job_id,
-                    "job_posting": job_posting,
+                    **row,  # Include all original fields
                     "judge_model": "llama",
-                    **scores
+                    "mean_score": mean_score,
+                    **{k: v for k, v in scores.items() if k != "mean_score"}  # Add scores
                 }
                 evaluations.append(evaluation)
+                print(f"    Mean score: {mean_score:.2f}")
             else:
                 print(f"    ERROR: Failed to parse JSON for {job_id}")
                 print(f"    Raw output snippet: {response[:200]}")
+                # Add row with empty scores to maintain sequence
+                evaluation = {
+                    **row,
+                    "judge_model": "llama",
+                    "mean_score": 0.0,
+                    "score_pedagogy": "",
+                    "score_audience": "",
+                    "score_ai_relevance": "",
+                    "score_responsible_ai": "",
+                    "score_cross_sector_context": "",
+                    "score_overall_fit": "",
+                    "ai_pedagogy_related": False,
+                    "confidence": 0.0,
+                    "rationale": ""
+                }
+                evaluations.append(evaluation)
 
         except Exception as e:
             print(f"    ERROR: Error evaluating {job_id}: {e}")
+            # Add row with empty scores to maintain sequence
+            evaluation = {
+                **row,
+                "judge_model": "llama",
+                "mean_score": 0.0,
+                "score_pedagogy": "",
+                "score_audience": "",
+                "score_ai_relevance": "",
+                "score_responsible_ai": "",
+                "score_cross_sector_context": "",
+                "score_overall_fit": "",
+                "ai_pedagogy_related": False,
+                "confidence": 0.0,
+                "rationale": ""
+            }
+            evaluations.append(evaluation)
             continue
 
         # Periodically clear cache to prevent OOM
@@ -203,13 +288,14 @@ def evaluate_job_postings(csv_path: str,
     # Save results
     json_out = output_path / "job_posting_evaluations.json"
     csv_out = output_path / "job_posting_evaluations.csv"
-    pd.DataFrame(evaluations).to_csv(csv_out, index=False)
+    df = pd.DataFrame(evaluations)
+    df.to_csv(csv_out, index=False, quoting=csv.QUOTE_ALL)
     with open(json_out, "w", encoding="utf-8") as f:
         json.dump(evaluations, f, ensure_ascii=False, indent=2)
 
-    print(f"Saved {len(evaluations)} evaluations to:\n  {json_out}\n  {csv_out}")
+    print(f"\nSaved {len(evaluations)} evaluations to:\n  {json_out}\n  {csv_out}")
 
-    # Compute average scores
+    # Compute average scores and overall mean
     if evaluations:
         score_keys = [
             "score_pedagogy", "score_audience", "score_ai_relevance",
@@ -217,19 +303,30 @@ def evaluate_job_postings(csv_path: str,
         ]
         avg_scores = {}
         for key in score_keys:
-            vals = [float(ev.get(key, 0)) for ev in evaluations if ev.get(key) is not None]
-            avg_scores[key] = sum(vals) / len(vals) if vals else 0
+            vals = [float(ev.get(key, 0)) for ev in evaluations if ev.get(key) is not None and ev.get(key) != ""]
+            avg_scores[key] = sum(vals) / len(vals) if vals else 0.0
+
+        # Compute overall mean of all mean scores
+        mean_scores = [float(ev.get("mean_score", 0)) for ev in evaluations if ev.get("mean_score") is not None and ev.get("mean_score") != ""]
+        overall_mean = sum(mean_scores) / len(mean_scores) if mean_scores else 0.0
+        avg_scores["overall_mean"] = overall_mean
 
         # Compute average confidence and ai_pedagogy_related percentage
-        confidences = [float(ev.get("confidence", 0)) for ev in evaluations if ev.get("confidence") is not None]
-        avg_scores["avg_confidence"] = sum(confidences) / len(confidences) if confidences else 0
+        confidences = [float(ev.get("confidence", 0)) for ev in evaluations if ev.get("confidence") is not None and ev.get("confidence") != ""]
+        avg_scores["avg_confidence"] = sum(confidences) / len(confidences) if confidences else 0.0
         
         ai_related_count = sum(1 for ev in evaluations if ev.get("ai_pedagogy_related") == True)
-        avg_scores["ai_pedagogy_related_percentage"] = (ai_related_count / len(evaluations) * 100) if evaluations else 0
+        avg_scores["ai_pedagogy_related_percentage"] = (ai_related_count / len(evaluations) * 100) if evaluations else 0.0
 
-        print(f"\nAverage scores:")
+        print(f"\n{'='*60}")
+        print(f"SUMMARY STATISTICS:")
+        print(f"{'='*60}")
         for k, v in avg_scores.items():
-            print(f"   {k:30s}: {v:.2f}")
+            if k == "overall_mean":
+                print(f"   {k:30s}: {v:.2f} ⭐")
+            else:
+                print(f"   {k:30s}: {v:.2f}")
+        print(f"{'='*60}")
 
 
 # ---------------------------------------------------------------------
@@ -237,8 +334,7 @@ def evaluate_job_postings(csv_path: str,
 # ---------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="Evaluate job postings for AI-pedagogy alignment using Llama as a judge.")
-    parser.add_argument("--csv_path", type=str, required=True, help="Path to job postings CSV file.")
-    parser.add_argument("--job_posting_column", type=str, default="job_posting", help="Column name containing job postings.")
+    parser.add_argument("--csv_path", type=str, required=True, help="Path to extracted job fields CSV file.")
     parser.add_argument("--output_dir", type=str, default="results/JobPostings/Llama", help="Directory to save outputs.")
     parser.add_argument("--model_id", type=str, default=MODEL_ID, help="Judge model ID.")
     parser.add_argument("--max_new_tokens", type=int, default=512, help="Max new tokens.")
@@ -246,7 +342,7 @@ def main():
     args = parser.parse_args()
 
     tokenizer, model = load_model_and_tokenizer(args.model_id)
-    evaluate_job_postings(args.csv_path, args.job_posting_column, args.output_dir,
+    evaluate_job_postings(args.csv_path, args.output_dir,
                           tokenizer, model, args.max_new_tokens, args.temperature)
     print("\nEvaluation complete.")
 

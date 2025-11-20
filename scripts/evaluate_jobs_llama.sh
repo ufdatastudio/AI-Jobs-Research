@@ -1,10 +1,13 @@
 #!/bin/bash
 #SBATCH --account ufdatastudios
 #SBATCH --job-name evaluate-jobs-llama
+#SBATCH --output=batch_scripts/evaluate_jobs_llama_%j.out
+#SBATCH --error=batch_scripts/evaluate_jobs_llama_%j.err
 #SBATCH --nodes=1
 #SBATCH --gpus=2
-#SBATCH --time=1:00:00
+#SBATCH --time=2:00:00
 #SBATCH --mem=80GB
+#SBATCH --cpus-per-task=8
 #SBATCH --mail-user=c.okocha@ufl.edu
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --partition hpg-b200
@@ -19,7 +22,7 @@ export PATH=$CUDA_HOME/bin:$PATH
 
 # Paths
 BASE_DIR="/orange/ufdatastudios/c.okocha/AI-Jobs-Research"
-CSV_PATH="${BASE_DIR}/Data/job_postings_sample.csv"
+CSV_PATH="${BASE_DIR}/Data/extracted_job_fields_llama.csv"
 OUTPUT_DIR="${BASE_DIR}/results/JobPostings/Llama"
 
 # Use /orange for model caches to avoid home quota
@@ -61,10 +64,12 @@ echo "Output Dir: ${OUTPUT_DIR}"
 # Change to base directory
 cd "${BASE_DIR}"
 
+# Activate virtual environment
+source .venv/bin/activate
+
 # Run Llama job posting evaluation
-python evaluate_jobs_llama.py \
+python models/evaluate_jobs_llama.py \
   --csv_path "${CSV_PATH}" \
-  --job_posting_column job_posting \
   --output_dir "${OUTPUT_DIR}" \
   --model_id "meta-llama/Meta-Llama-3.1-8B-Instruct" \
   --max_new_tokens 512 \
