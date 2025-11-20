@@ -19,17 +19,19 @@ You are an expert at extracting structured information from job postings.
 
 Extract the following fields from the JOB POSTING text below:
 
-1. **Job Title**: The official job title or position name (e.g., "Machine Learning Engineer", "AI Education Specialist")
+1. **Company Name**: The name of the employer, organization, or company posting this job (e.g., "Apple", "University of South Carolina", "Culinary Institute of America", "First Citizens Bank"). Extract the official company/organization name if explicitly mentioned. If the company name is not clearly stated, leave this as an empty string.
 
-2. **Job Description**: A clean, comprehensive overview of the role and its purpose. This should be a general description that introduces the position and its context within the organization. Remove any metadata, headers, footers, or navigation elements.
+2. **Job Title**: The official job title or position name (e.g., "Machine Learning Engineer", "AI Education Specialist")
 
-3. **Responsibilities**: Specific duties, tasks, and day-to-day activities the candidate will perform. This should be a list or description of what the person will actually do in this role (e.g., "Develop machine learning models", "Lead training workshops", "Collaborate with cross-functional teams"). If there's a "Responsibilities" or "What You'll Do" section, extract that content here.
+3. **Job Description**: A clean, comprehensive overview of the role and its purpose. This should be a general description that introduces the position and its context within the organization. Remove any metadata, headers, footers, or navigation elements.
 
-4. **Required Skills**: Technical skills, tools, technologies, programming languages, frameworks, and soft skills that are necessary for this role. This can include both hard skills (e.g., "Python", "PyTorch", "AWS") and soft skills (e.g., "Excellent communication", "Team leadership"). Extract from sections like "Required Skills", "Skills", "Technical Requirements", or similar. If skills are mixed with qualifications, extract only the skill-related content here.
+4. **Responsibilities**: Specific duties, tasks, and day-to-day activities the candidate will perform. This should be a list or description of what the person will actually do in this role (e.g., "Develop machine learning models", "Lead training workshops", "Collaborate with cross-functional teams"). If there's a "Responsibilities" or "What You'll Do" section, extract that content here.
 
-5. **Job Qualifications**: Education requirements, years of experience, certifications, degrees, and other formal requirements. This typically includes items like "Bachelor's degree", "5+ years of experience", "PhD preferred", etc. Include both "Required" and "Preferred" sections if present.
+5. **Required Skills**: Technical skills, tools, technologies, programming languages, frameworks, and soft skills that are necessary for this role. This can include both hard skills (e.g., "Python", "PyTorch", "AWS") and soft skills (e.g., "Excellent communication", "Team leadership"). Extract from sections like "Required Skills", "Skills", "Technical Requirements", or similar. If skills are mixed with qualifications, extract only the skill-related content here.
 
-6. **Job Salary**: Salary range, compensation, or pay information if mentioned. If not explicitly stated, you may extract related compensation information (e.g., "competitive salary", "benefits package"). If no salary information is available, return an empty string.
+6. **Job Qualifications**: Education requirements, years of experience, certifications, degrees, and other formal requirements. This typically includes items like "Bachelor's degree", "5+ years of experience", "PhD preferred", etc. Include both "Required" and "Preferred" sections if present.
+
+7. **Job Salary**: Salary range, compensation, or pay information if mentioned. If not explicitly stated, you may extract related compensation information (e.g., "competitive salary", "benefits package"). If no salary information is available, return an empty string.
 
 JOB POSTING:
 {job_posting}
@@ -46,6 +48,7 @@ Respond STRICTLY in valid JSON (no markdown, comments, or extra text) as shown b
 
 Example:
 {{
+  "company_name": "Apple Inc.",
   "job_title": "Machine Learning Engineer",
   "job_description": "We are seeking an experienced Machine Learning Engineer to join our AI team. This role involves developing cutting-edge ML solutions...",
   "responsibilities": "Develop and deploy machine learning models for production use. Collaborate with data scientists and engineers. Design experiments and analyze results...",
@@ -182,6 +185,7 @@ def extract_job_fields(csv_path: str,
             if extracted_fields:
                 job_data = {
                     "job_id": job_id,
+                    "company_name": extracted_fields.get("company_name", ""),
                     "job_title": extracted_fields.get("job_title", ""),
                     "job_description": extracted_fields.get("job_description", ""),
                     "responsibilities": extracted_fields.get("responsibilities", ""),
@@ -196,6 +200,7 @@ def extract_job_fields(csv_path: str,
                 # Add row with empty fields to maintain job_id sequence
                 extracted_jobs.append({
                     "job_id": job_id,
+                    "company_name": "",
                     "job_title": "",
                     "job_description": "",
                     "responsibilities": "",
@@ -233,6 +238,7 @@ def extract_job_fields(csv_path: str,
 
     # Print summary statistics
     if extracted_jobs:
+        non_empty_company = sum(1 for job in extracted_jobs if job.get("company_name", "").strip())
         non_empty_title = sum(1 for job in extracted_jobs if job.get("job_title", "").strip())
         non_empty_desc = sum(1 for job in extracted_jobs if job.get("job_description", "").strip())
         non_empty_resp = sum(1 for job in extracted_jobs if job.get("responsibilities", "").strip())
@@ -242,6 +248,7 @@ def extract_job_fields(csv_path: str,
 
         print(f"\nSummary Statistics:")
         print(f"   Total jobs processed: {len(extracted_jobs)}")
+        print(f"   Jobs with company name: {non_empty_company} ({non_empty_company/len(extracted_jobs)*100:.1f}%)")
         print(f"   Jobs with title: {non_empty_title} ({non_empty_title/len(extracted_jobs)*100:.1f}%)")
         print(f"   Jobs with description: {non_empty_desc} ({non_empty_desc/len(extracted_jobs)*100:.1f}%)")
         print(f"   Jobs with responsibilities: {non_empty_resp} ({non_empty_resp/len(extracted_jobs)*100:.1f}%)")
