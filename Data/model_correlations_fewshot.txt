@@ -1,0 +1,27 @@
+FEW-SHOT: CORRELATION COEFFICIENTS BETWEEN MODELS
+======================================================================
+gemma_vs_llama                : r = 0.8302, p = 0.0000, n = 50
+gemma_vs_mistral              : r = 0.7029, p = 0.0000, n = 50
+gemma_vs_olmo                 : r = 0.7505, p = 0.0000, n = 50
+gemma_vs_qwen                 : r = 0.8496, p = 0.0000, n = 50
+llama_vs_mistral              : r = 0.7315, p = 0.0000, n = 50
+llama_vs_olmo                 : r = 0.7271, p = 0.0000, n = 50
+llama_vs_qwen                 : r = 0.8359, p = 0.0000, n = 50
+mistral_vs_olmo               : r = 0.6077, p = 0.0000, n = 50
+mistral_vs_qwen               : r = 0.7243, p = 0.0000, n = 50
+olmo_vs_qwen                  : r = 0.6929, p = 0.0000, n = 50
+======================================================================
+
+FEW-SHOT SUMMARY STATISTICS
+======================================================================
+gemma_mean                    : Mean = 3.669, Std = 0.574
+gemma_ai_pedagogy             : 35/50 (70.0%) classified as AI-pedagogy related
+llama_mean                    : Mean = 3.767, Std = 0.868
+llama_ai_pedagogy             : 37/50 (74.0%) classified as AI-pedagogy related
+mistral_mean                  : Mean = 4.065, Std = 0.604
+mistral_ai_pedagogy           : 44/50 (88.0%) classified as AI-pedagogy related
+olmo_mean                     : Mean = 4.273, Std = 0.505
+olmo_ai_pedagogy              : 47/50 (94.0%) classified as AI-pedagogy related
+qwen_mean                     : Mean = 3.993, Std = 0.555
+qwen_ai_pedagogy              : 43/50 (86.0%) classified as AI-pedagogy related
+======================================================================

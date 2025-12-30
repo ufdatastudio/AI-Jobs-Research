@@ -107,7 +107,8 @@ def generate_evaluation(job_posting: str,
                         tokenizer,
                         model,
                         max_new_tokens: int = 512,
-                        temperature: float = 0.2) -> str:
+                        temperature: float = 0.2,
+                        few_shot: bool = False) -> str:
     anchors = ANCHOR_EXAMPLES + ("\n" + FEW_SHOT_EXAMPLES if few_shot else "")
     prompt = EVAL_PROMPT.format(job_posting=job_posting, anchors=anchors)
     messages = [
