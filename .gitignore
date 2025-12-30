@@ -149,6 +149,7 @@ Thumbs.db
 .huggingface/
 .cache/huggingface/
 .cache/transformers/
+.fiftyone/
 *.bin
 *.safetensors
 *.pt
@@ -156,6 +157,9 @@ Thumbs.db
 *.ckpt
 
 # Results and outputs
+
+# Generated panels / experiment run outputs
+runs/
 
 *.out
 *.err

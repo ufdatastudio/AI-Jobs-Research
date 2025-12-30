@@ -14,13 +14,46 @@ import re
 
 MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 
-EVAL_PROMPT = """
+ANCHOR_EXAMPLES = """
+Calibration anchors (read-only examples):
+1) Positive (Developer Educator + AI):
+   - Teaches developers how to use AI/LLMs, builds tutorials, maintains learning guides.
+   - Strong pedagogy, clear audience, high AI relevance → high overall fit.
+2) Negative (ML Engineer, no teaching):
+   - Trains models and maintains ML infra; no instructional or enablement scope.
+   - Low pedagogy despite AI relevance → low overall fit.
+3) Tricky (Enablement/DevRel role):
+   - Writes docs, samples, and learning content for product adoption (may include AI topics).
+   - Medium pedagogy, medium audience clarity, variable AI → borderline overall fit.
+"""
+
+FEW_SHOT_EXAMPLES = """
+Few-shot exemplars (format reference):
+Example A (high fit):
+{
+  "score_pedagogy": 5, "score_audience": 5, "score_ai_relevance": 5,
+  "score_responsible_ai": 3, "score_cross_sector_context": 4, "score_overall_fit": 5,
+  "ai_pedagogy_related": true, "confidence": 0.9,
+  "rationale": "Developer education with AI tutorials and curricula."
+}
+Example B (low fit):
+{
+  "score_pedagogy": 1, "score_audience": 2, "score_ai_relevance": 4,
+  "score_responsible_ai": 2, "score_cross_sector_context": 2, "score_overall_fit": 2,
+  "ai_pedagogy_related": false, "confidence": 0.5,
+  "rationale": "Pure ML engineering; no teaching or enablement."
+}
+"""
+
+EVAL_PROMPT_BASE = """
 You are an expert evaluator of cross-sector job postings related to Artificial Intelligence (AI) and Pedagogy in Engineering Education.
 
 Evaluate the JOB POSTING below to determine how strongly it aligns with AI-related pedagogical work — i.e., roles that combine AI/ML with teaching, learning design, training, documentation, or educational enablement, as found across academia, edtech, industry, and government.
 
 JOB POSTING:
 {job_posting}
+
+{anchors}
 
 Rate each criterion from 1 (very poor / not present) to 5 (strongly evident):
 
@@ -33,9 +66,11 @@ Rate each criterion from 1 (very poor / not present) to 5 (strongly evident):
 
 Then apply this classification rule:
 
-- Compute the mean of all six scores.
-- If the mean score ≥ 3.5, set "ai_pedagogy_related": true.
-- Otherwise, set "ai_pedagogy_related": false.
+- Compute the mean of all six scores (M).
+- Keep 3.5 as conceptual threshold, but use an uncertainty band:
+  - If M ≥ 3.7 → Treat as True
+  - If M ≤ 3.3 → Treat as False
+  - Otherwise → Borderline/Review
 - Confidence should be proportional to the mean score (scale 0.0–1.0).
 
 Respond STRICTLY in valid JSON (no markdown, comments, or extra text) as shown below:
@@ -78,9 +113,11 @@ def generate_evaluation(job_posting: str,
                         tokenizer,
                         model,
                         max_new_tokens: int = 512,
-                        temperature: float = 0.2) -> str:
+                        temperature: float = 0.2,
+                        few_shot: bool = False) -> str:
     """Generate JSON evaluation using Llama as judge."""
-    prompt = EVAL_PROMPT.format(job_posting=job_posting)
+    anchors = ANCHOR_EXAMPLES + ("\n" + FEW_SHOT_EXAMPLES if few_shot else "")
+    prompt = EVAL_PROMPT_BASE.format(job_posting=job_posting, anchors=anchors)
 
     messages = [
         {"role": "system", "content": "You are an expert evaluator of AI-pedagogy job postings. Always return valid JSON only."},
@@ -189,7 +226,8 @@ def evaluate_job_postings(csv_path: str,
                           tokenizer=None,
                           model=None,
                           max_new_tokens: int = 512,
-                          temperature: float = 0.2):
+                          temperature: float = 0.2,
+                          few_shot: bool = False):
     """Evaluate job postings to determine AI-pedagogy alignment using Llama."""
     rows = load_csv(csv_path)
     print(f"Loaded {len(rows)} rows from CSV")
@@ -217,26 +255,33 @@ def evaluate_job_postings(csv_path: str,
         print(f"  Evaluating {job_id} ({i+1}/{len(rows)})")
         try:
             response = generate_evaluation(job_posting, tokenizer, model,
-                                           max_new_tokens=max_new_tokens, temperature=temperature)
+                                           max_new_tokens=max_new_tokens, temperature=temperature, few_shot=few_shot)
             scores = extract_json_from_response(response)
 
             # Retry once if JSON fails
             if not scores:
                 print(f"    WARNING: Retry due to malformed JSON ...")
                 response = generate_evaluation(job_posting, tokenizer, model,
-                                               max_new_tokens=max_new_tokens, temperature=temperature)
+                                               max_new_tokens=max_new_tokens, temperature=temperature, few_shot=few_shot)
                 scores = extract_json_from_response(response)
 
             if scores:
                 # Calculate mean score
                 mean_score = calculate_mean_score(scores)
                 scores["mean_score"] = round(mean_score, 2)
+                # Band classification
+                classification = "borderline"
+                if mean_score >= 3.7:
+                    classification = "true"
+                elif mean_score <= 3.3:
+                    classification = "false"
                 
                 # Combine original row data with evaluation scores
                 evaluation = {
                     **row,  # Include all original fields
                     "judge_model": "llama",
                     "mean_score": mean_score,
+                    "classification": classification,
                     **{k: v for k, v in scores.items() if k != "mean_score"}  # Add scores
                 }
                 evaluations.append(evaluation)
@@ -249,6 +294,7 @@ def evaluate_job_postings(csv_path: str,
                     **row,
                     "judge_model": "llama",
                     "mean_score": 0.0,
+                    "classification": "borderline",
                     "score_pedagogy": "",
                     "score_audience": "",
                     "score_ai_relevance": "",
@@ -339,11 +385,12 @@ def main():
     parser.add_argument("--model_id", type=str, default=MODEL_ID, help="Judge model ID.")
     parser.add_argument("--max_new_tokens", type=int, default=512, help="Max new tokens.")
     parser.add_argument("--temperature", type=float, default=0.2, help="Sampling temperature.")
+    parser.add_argument("--few_shot", action="store_true", help="Use few-shot exemplars in prompt.")
     args = parser.parse_args()
 
     tokenizer, model = load_model_and_tokenizer(args.model_id)
     evaluate_job_postings(args.csv_path, args.output_dir,
-                          tokenizer, model, args.max_new_tokens, args.temperature)
+                          tokenizer, model, args.max_new_tokens, args.temperature, args.few_shot)
     print("\nEvaluation complete.")
 
 

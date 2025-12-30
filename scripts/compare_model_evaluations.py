@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Compare evaluation results from three LLM models (Llama, Qwen2, Mistral).
+Compare evaluation results from five LLM models (Gemma, Llama, Mistral, OLMo, Qwen).
 Calculates correlation coefficients and creates a summary CSV.
 """
 
@@ -45,7 +45,7 @@ def calculate_correlations(df: pd.DataFrame) -> dict:
     """Calculate Pearson correlation coefficients between model mean scores."""
     correlations = {}
     
-    models = ['llama', 'qwen2', 'mistral']
+    models = ['gemma', 'llama', 'mistral', 'olmo', 'qwen']
     mean_cols = [f'{model}_mean' for model in models]
     
     # Check which columns exist
@@ -87,43 +87,53 @@ def calculate_correlations(df: pd.DataFrame) -> dict:
 def main():
     base_dir = Path("/orange/ufdatastudios/c.okocha/AI-Jobs-Research")
     
-    # Paths to evaluation results
-    llama_path = base_dir / "results/JobPostings/Llama/job_posting_evaluations.csv"
-    qwen2_path = base_dir / "results/JobPostings/Qwen2/job_posting_evaluations.csv"
-    mistral_path = base_dir / "results/JobPostings/Mistral/job_posting_evaluations.csv"
+    # Paths to evaluation results for all 5 models
+    model_paths = {
+        'gemma': base_dir / "results/JobPostings/Gemma/job_posting_evaluations.csv",
+        'llama': base_dir / "results/JobPostings/Llama/job_posting_evaluations.csv",
+        'mistral': base_dir / "results/JobPostings/Mistral/job_posting_evaluations.csv",
+        'olmo': base_dir / "results/JobPostings/OLMo/job_posting_evaluations.csv",
+        'qwen': base_dir / "results/JobPostings/Qwen/job_posting_evaluations.csv"
+    }
     
     # Load evaluation results
     print("Loading evaluation results...")
-    llama_df = load_evaluation_results(llama_path)
-    llama_df = llama_df.rename(columns={
-        'mean_score': 'llama_mean',
-        'ai_pedagogy_related': 'llama_ai_pedagogy'
-    })
+    model_dfs = {}
+    for model_name, csv_path in model_paths.items():
+        if csv_path.exists():
+            try:
+                df = load_evaluation_results(csv_path)
+                df = df.rename(columns={
+                    'mean_score': f'{model_name}_mean',
+                    'ai_pedagogy_related': f'{model_name}_ai_pedagogy'
+                })
+                model_dfs[model_name] = df
+                print(f"  Loaded {model_name}: {len(df)} jobs")
+            except Exception as e:
+                print(f"  WARNING: Failed to load {model_name}: {e}")
+        else:
+            print(f"  WARNING: {csv_path} not found")
     
-    qwen2_df = load_evaluation_results(qwen2_path)
-    qwen2_df = qwen2_df.rename(columns={
-        'mean_score': 'qwen2_mean',
-        'ai_pedagogy_related': 'qwen2_ai_pedagogy'
-    })
+    if len(model_dfs) == 0:
+        print("ERROR: No evaluation results found!")
+        return
     
-    mistral_df = load_evaluation_results(mistral_path)
-    mistral_df = mistral_df.rename(columns={
-        'mean_score': 'mistral_mean',
-        'ai_pedagogy_related': 'mistral_ai_pedagogy'
-    })
-    
-    # Merge all three dataframes on job_id
-    print("Merging evaluation results...")
-    merged_df = llama_df.merge(qwen2_df, on='job_id', how='outer')
-    merged_df = merged_df.merge(mistral_df, on='job_id', how='outer')
+    # Merge all dataframes on job_id
+    print("\nMerging evaluation results...")
+    merged_df = None
+    for model_name, df in model_dfs.items():
+        if merged_df is None:
+            merged_df = df
+        else:
+            merged_df = merged_df.merge(df, on='job_id', how='outer')
     
     # Sort by job_id for consistency
     merged_df = merged_df.sort_values('job_id').reset_index(drop=True)
     
     # Convert boolean columns to int (0 or 1) for easier analysis
-    for col in ['llama_ai_pedagogy', 'qwen2_ai_pedagogy', 'mistral_ai_pedagogy']:
-        if col in merged_df.columns:
-            merged_df[col] = merged_df[col].apply(convert_boolean_to_int)
+    ai_pedagogy_cols = [col for col in merged_df.columns if 'ai_pedagogy' in col]
+    for col in ai_pedagogy_cols:
+        merged_df[col] = merged_df[col].apply(convert_boolean_to_int)
     
     # Calculate correlations
     print("\nCalculating correlation coefficients...")
@@ -139,7 +149,7 @@ def main():
     
     # Create summary CSV with just the essential columns
     summary_columns = ['job_id']
-    for model in ['llama', 'qwen2', 'mistral']:
+    for model in ['gemma', 'llama', 'mistral', 'olmo', 'qwen']:
         if f'{model}_mean' in merged_df.columns:
             summary_columns.append(f'{model}_mean')
         if f'{model}_ai_pedagogy' in merged_df.columns:
@@ -180,6 +190,21 @@ def main():
         f.write("="*70 + "\n")
         for pair, stats in correlations.items():
             f.write(f"{pair:30s}: r = {stats['correlation']:.4f}, p = {stats['p_value']:.4f}, n = {stats['n']}\n")
+        f.write("="*70 + "\n")
+        f.write("\nSUMMARY STATISTICS\n")
+        f.write("="*70 + "\n")
+        for col in summary_df.columns:
+            if col == 'job_id':
+                continue
+            if 'mean' in col:
+                mean_val = summary_df[col].mean()
+                std_val = summary_df[col].std()
+                f.write(f"{col:30s}: Mean = {mean_val:.3f}, Std = {std_val:.3f}\n")
+            elif 'ai_pedagogy' in col:
+                true_count = summary_df[col].sum()
+                total_count = summary_df[col].notna().sum()
+                percentage = (true_count / total_count * 100) if total_count > 0 else 0
+                f.write(f"{col:30s}: {true_count}/{total_count} ({percentage:.1f}%) classified as AI-pedagogy related\n")
         f.write("="*70 + "\n")
     
     print(f"\nCorrelation results saved to: {corr_output_path}")

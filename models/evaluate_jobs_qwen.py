@@ -12,7 +12,7 @@ import pandas as pd
 import re
 
 
-MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
+MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 
 ANCHOR_EXAMPLES = """
 Calibration anchors (read-only examples):
@@ -94,7 +94,7 @@ Example:
 # Model Loading
 # ---------------------------------------------------------------------
 def load_model_and_tokenizer(model_id: str = MODEL_ID):
-    """Load the Mistral judge model and tokenizer."""
+    """Load the Qwen judge model and tokenizer."""
     print(f"Loading model: {model_id}")
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     model = AutoModelForCausalLM.from_pretrained(
@@ -115,7 +115,7 @@ def generate_evaluation(job_posting: str,
                         max_new_tokens: int = 512,
                         temperature: float = 0.2,
                         few_shot: bool = False) -> str:
-    """Generate JSON evaluation using Mistral as judge."""
+    """Generate JSON evaluation using Qwen as judge."""
     anchors = ANCHOR_EXAMPLES + ("\n" + FEW_SHOT_EXAMPLES if few_shot else "")
     prompt = EVAL_PROMPT.format(job_posting=job_posting, anchors=anchors)
 
@@ -124,7 +124,6 @@ def generate_evaluation(job_posting: str,
         {"role": "user", "content": prompt},
     ]
 
-    # Use chat template if available
     chat_template = getattr(tokenizer, "chat_template", None)
     if chat_template:
         prompt_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -222,13 +221,13 @@ def calculate_mean_score(scores: Dict) -> float:
 
 
 def evaluate_job_postings(csv_path: str,
-                          output_dir: str = "results/JobPostings/Mistral",
+                          output_dir: str = "results/JobPostings/Qwen",
                           tokenizer=None,
                           model=None,
                           max_new_tokens: int = 512,
                           temperature: float = 0.2,
                           few_shot: bool = False):
-    """Evaluate job postings to determine AI-pedagogy alignment using Mistral."""
+    """Evaluate job postings to determine AI-pedagogy alignment using Qwen."""
     rows = load_csv(csv_path)
     print(f"Loaded {len(rows)} rows from CSV")
 
@@ -245,9 +244,7 @@ def evaluate_job_postings(csv_path: str,
     for i, row in enumerate(rows):
         job_id = row.get("job_id", row.get("id", f"row_{i+1}"))
         
-        # Combine all job fields into a single posting text
         job_posting = combine_job_fields(row).strip()
-
         if not job_posting:
             print(f"  Skipping {job_id} ({i+1}/{len(rows)}) — empty job posting")
             continue
@@ -268,30 +265,27 @@ def evaluate_job_postings(csv_path: str,
             if scores:
                 mean_score = calculate_mean_score(scores)
                 scores["mean_score"] = round(mean_score, 2)
-                # Band classification
                 classification = "borderline"
                 if mean_score >= 3.7:
                     classification = "true"
                 elif mean_score <= 3.3:
                     classification = "false"
                 
-                # Combine original row data with evaluation scores
                 evaluation = {
-                    **row,  # Include all original fields
-                    "judge_model": "mistral",
+                    **row,
+                    "judge_model": "qwen",
                     "mean_score": mean_score,
                     "classification": classification,
-                    **{k: v for k, v in scores.items() if k != "mean_score"}  # Add scores
+                    **{k: v for k, v in scores.items() if k != "mean_score"}
                 }
                 evaluations.append(evaluation)
                 print(f"    Mean score: {mean_score:.2f}")
             else:
                 print(f"    ERROR: Failed to parse JSON for {job_id}")
                 print(f"    Raw output snippet: {response[:200]}")
-                # Add row with empty scores to maintain sequence
                 evaluation = {
                     **row,
-                    "judge_model": "mistral",
+                    "judge_model": "qwen",
                     "mean_score": 0.0,
                     "classification": "borderline",
                     "score_pedagogy": "",
@@ -308,10 +302,9 @@ def evaluate_job_postings(csv_path: str,
 
         except Exception as e:
             print(f"    ERROR: Error evaluating {job_id}: {e}")
-            # Add row with empty scores to maintain sequence
             evaluation = {
                 **row,
-                "judge_model": "mistral",
+                "judge_model": "qwen",
                 "mean_score": 0.0,
                 "score_pedagogy": "",
                 "score_audience": "",
@@ -326,7 +319,6 @@ def evaluate_job_postings(csv_path: str,
             evaluations.append(evaluation)
             continue
 
-        # Periodically clear cache to prevent OOM
         if (i + 1) % 10 == 0:
             torch.cuda.empty_cache()
 
@@ -340,7 +332,6 @@ def evaluate_job_postings(csv_path: str,
 
     print(f"\nSaved {len(evaluations)} evaluations to:\n  {json_out}\n  {csv_out}")
 
-    # Compute average scores and overall mean
     if evaluations:
         score_keys = [
             "score_pedagogy", "score_audience", "score_ai_relevance",
@@ -351,12 +342,10 @@ def evaluate_job_postings(csv_path: str,
             vals = [float(ev.get(key, 0)) for ev in evaluations if ev.get(key) is not None and ev.get(key) != ""]
             avg_scores[key] = sum(vals) / len(vals) if vals else 0.0
 
-        # Compute overall mean of all mean scores
         mean_scores = [float(ev.get("mean_score", 0)) for ev in evaluations if ev.get("mean_score") is not None and ev.get("mean_score") != ""]
         overall_mean = sum(mean_scores) / len(mean_scores) if mean_scores else 0.0
         avg_scores["overall_mean"] = overall_mean
 
-        # Compute average confidence and ai_pedagogy_related percentage
         confidences = [float(ev.get("confidence", 0)) for ev in evaluations if ev.get("confidence") is not None and ev.get("confidence") != ""]
         avg_scores["avg_confidence"] = sum(confidences) / len(confidences) if confidences else 0.0
         
@@ -378,9 +367,9 @@ def evaluate_job_postings(csv_path: str,
 # CLI Entry Point
 # ---------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate job postings for AI-pedagogy alignment using Mistral as a judge.")
+    parser = argparse.ArgumentParser(description="Evaluate job postings for AI-pedagogy alignment using Qwen as a judge.")
     parser.add_argument("--csv_path", type=str, required=True, help="Path to extracted job fields CSV file.")
-    parser.add_argument("--output_dir", type=str, default="results/JobPostings/Mistral", help="Directory to save outputs.")
+    parser.add_argument("--output_dir", type=str, default="results/JobPostings/Qwen", help="Directory to save outputs.")
     parser.add_argument("--model_id", type=str, default=MODEL_ID, help="Judge model ID.")
     parser.add_argument("--max_new_tokens", type=int, default=512, help="Max new tokens.")
     parser.add_argument("--temperature", type=float, default=0.2, help="Sampling temperature.")
@@ -395,4 +384,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
